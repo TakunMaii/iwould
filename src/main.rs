@@ -10,6 +10,7 @@ const WORLD_UNIT_SIZE: f32 = 16.0;
 
 const PLAYER_MOVE_SPEED: f32 = 3.0;
 const PLAYER_ATTACK_TIME: f32 = 0.3;
+const PLAYER_ATTACK_DAMAGE: f32 = 1.0;
 
 struct Resources {
     textures: HashMap<String, Texture2D>,
@@ -42,6 +43,25 @@ struct PlayerControl {
 
 struct PlayerAttacking {
     rest_time: f32,
+}
+
+struct DamageArea {
+    // world units
+    rect: Rectangle,
+    damage: f32,
+    exception_entity: Option<Entity>,
+}
+
+struct TriggerArea {
+    // local position in world units
+    rect: Rectangle,
+}
+
+// die after getting any damage
+struct OneHealth;
+
+fn rectangle_overlaps(a: &Rectangle, b: &Rectangle) -> bool {
+    a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 }
 
 // --- Components ---
@@ -147,6 +167,27 @@ fn player_generate_sword(
         },
     ));
 
+    cmd.spawn((
+        Transform {
+            position: Vector2::new(
+                player_transform.position.x + position_bias.x,
+                player_transform.position.y + position_bias.y,
+            ),
+            rotation: rotation,
+            scale: Vector2::new(1.0, 1.0),
+        },
+        DamageArea {
+            rect: Rectangle::new(
+                player_transform.position.x + position_bias.x - 0.5,
+                player_transform.position.y + position_bias.y - 0.5,
+                1.0,
+                1.0,
+            ),
+            damage: PLAYER_ATTACK_DAMAGE,
+            exception_entity: Some(player_entity),
+        },
+    ));
+
     cmd.insert_one(
         player_entity,
         PlayerAttacking {
@@ -155,10 +196,7 @@ fn player_generate_sword(
     );
 }
 
-fn player_attack_system(
-    world: &mut World,
-    d: &mut RaylibDrawHandle,
-) {
+fn player_attack_system(world: &mut World, d: &mut RaylibDrawHandle) {
     let mut cmd = CommandBuffer::new();
     for (entity, _, transform) in world
         .query_mut::<(Entity, &mut PlayerControl, &mut Transform)>()
@@ -168,21 +206,9 @@ fn player_attack_system(
         // which are arrow keys, UP, DOWN, LEFT, RIGHT
 
         if d.is_key_pressed(KeyboardKey::KEY_UP) {
-            player_generate_sword(
-                &mut cmd,
-                entity,
-                transform,
-                Vector2 { x: 0., y: 1. },
-                -90.0,
-            );
+            player_generate_sword(&mut cmd, entity, transform, Vector2 { x: 0., y: 1. }, -90.0);
         } else if d.is_key_pressed(KeyboardKey::KEY_DOWN) {
-            player_generate_sword(
-                &mut cmd,
-                entity,
-                transform,
-                Vector2 { x: 0., y: -1. },
-                90.0,
-            );
+            player_generate_sword(&mut cmd, entity, transform, Vector2 { x: 0., y: -1. }, 90.0);
         } else if d.is_key_pressed(KeyboardKey::KEY_LEFT) {
             player_generate_sword(
                 &mut cmd,
@@ -192,13 +218,7 @@ fn player_attack_system(
                 180.0,
             );
         } else if d.is_key_pressed(KeyboardKey::KEY_RIGHT) {
-            player_generate_sword(
-                &mut cmd,
-                entity,
-                transform,
-                Vector2 { x: 1., y: 0. },
-                0.0,
-            );
+            player_generate_sword(&mut cmd, entity, transform, Vector2 { x: 1., y: 0. }, 0.0);
         }
     }
 
@@ -231,6 +251,37 @@ fn die_in_time_system(world: &mut World, d: &mut RaylibDrawHandle) {
     cmd.run_on(world);
 }
 
+fn triggering_damage_area_system(world: &mut World) {
+    let mut cmd = CommandBuffer::new();
+
+    for (_, damage_area) in world.query::<(Entity, &DamageArea)>().iter() {
+        for (target_entity, target_transform, trigger_area, _) in world
+            .query::<(Entity, &Transform, &TriggerArea, &OneHealth)>()
+            .iter()
+        {
+            let target_rect = Rectangle::new(
+                target_transform.position.x + trigger_area.rect.x,
+                target_transform.position.y + trigger_area.rect.y,
+                trigger_area.rect.width,
+                trigger_area.rect.height,
+            );
+
+            if rectangle_overlaps(&damage_area.rect, &target_rect) {
+                if let Some(exception_entity) = damage_area.exception_entity {
+                    if exception_entity == target_entity {
+                        continue;
+                    }
+                }
+
+                // for OneHealth, we just despawn the entity when it takes damage
+                cmd.despawn(target_entity);
+            }
+        }
+    }
+
+    cmd.run_on(world);
+}
+
 // --- Systems ---
 
 fn main() {
@@ -252,9 +303,14 @@ fn main() {
         "sword".to_string(),
         rl.load_texture(&thread, "assets/player/sword.png").unwrap(),
     );
+    resources.textures.insert(
+        "kettle".to_string(),
+        rl.load_texture(&thread, "assets/kettle.png").unwrap(),
+    );
 
     let mut world = World::new();
 
+    // player
     world.spawn((
         StaticSprite {
             sprite: Sprite {
@@ -272,6 +328,42 @@ fn main() {
         },
     ));
 
+    // kettle
+    world.spawn((
+        StaticSprite {
+            sprite: Sprite {
+                texture_name: "kettle".to_string(),
+                rect: Rectangle::new(0.0, 0.0, 16.0, 16.0),
+            },
+        },
+        Transform {
+            position: Vector2::new(4.0, 4.0),
+            rotation: 0.0,
+            scale: Vector2::new(1.0, 1.0),
+        },
+        TriggerArea {
+            rect: Rectangle::new(-0.5, -0.5, 1.0, 1.0),
+        },
+        OneHealth,
+    ));
+    world.spawn((
+        StaticSprite {
+            sprite: Sprite {
+                texture_name: "kettle".to_string(),
+                rect: Rectangle::new(0.0, 0.0, 16.0, 16.0),
+            },
+        },
+        Transform {
+            position: Vector2::new(6.0, 6.0),
+            rotation: 0.0,
+            scale: Vector2::new(1.0, 1.0),
+        },
+        TriggerArea {
+            rect: Rectangle::new(-0.5, -0.5, 1.0, 1.0),
+        },
+        OneHealth,
+    ));
+
     while !rl.window_should_close() {
         let mut d = rl.begin_drawing(&thread);
 
@@ -280,6 +372,8 @@ fn main() {
         player_movement_system(&mut world, &mut d);
         player_attack_system(&mut world, &mut d);
         player_attack_cooldown_system(&mut world, &mut d);
+
+        triggering_damage_area_system(&mut world);
 
         d.clear_background(Color::BLACK);
         static_sprite_drawing_system(&mut world, &mut d, &resources);
