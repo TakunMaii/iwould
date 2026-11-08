@@ -81,7 +81,7 @@ fn static_sprite_drawing_system(
     }
 }
 
-fn player_movement_system(world: &mut World, d: &mut RaylibDrawHandle, resources: &Resources) {
+fn player_movement_system(world: &mut World, d: &mut RaylibDrawHandle) {
     let dt = d.get_frame_time();
     for (player_control, transform) in world
         .query_mut::<(&mut PlayerControl, &mut Transform)>()
@@ -126,9 +126,6 @@ fn player_generate_sword(
     player_transform: &Transform,
     position_bias: Vector2,
     rotation: f32,
-    d: &mut RaylibDrawHandle,
-    thread: &raylib::prelude::RaylibThread,
-    resources: &Resources,
 ) {
     cmd.spawn((
         StaticSprite {
@@ -161,8 +158,6 @@ fn player_generate_sword(
 fn player_attack_system(
     world: &mut World,
     d: &mut RaylibDrawHandle,
-    thread: &raylib::prelude::RaylibThread,
-    resources: &Resources,
 ) {
     let mut cmd = CommandBuffer::new();
     for (entity, _, transform) in world
@@ -179,9 +174,6 @@ fn player_attack_system(
                 transform,
                 Vector2 { x: 0., y: 1. },
                 -90.0,
-                d,
-                thread,
-                resources,
             );
         } else if d.is_key_pressed(KeyboardKey::KEY_DOWN) {
             player_generate_sword(
@@ -190,9 +182,6 @@ fn player_attack_system(
                 transform,
                 Vector2 { x: 0., y: -1. },
                 90.0,
-                d,
-                thread,
-                resources,
             );
         } else if d.is_key_pressed(KeyboardKey::KEY_LEFT) {
             player_generate_sword(
@@ -201,9 +190,6 @@ fn player_attack_system(
                 transform,
                 Vector2 { x: -1., y: 0. },
                 180.0,
-                d,
-                thread,
-                resources,
             );
         } else if d.is_key_pressed(KeyboardKey::KEY_RIGHT) {
             player_generate_sword(
@@ -212,9 +198,6 @@ fn player_attack_system(
                 transform,
                 Vector2 { x: 1., y: 0. },
                 0.0,
-                d,
-                thread,
-                resources,
             );
         }
     }
@@ -294,8 +277,8 @@ fn main() {
 
         die_in_time_system(&mut world, &mut d);
 
-        player_movement_system(&mut world, &mut d, &resources);
-        player_attack_system(&mut world, &mut d, &thread, &resources);
+        player_movement_system(&mut world, &mut d);
+        player_attack_system(&mut world, &mut d);
         player_attack_cooldown_system(&mut world, &mut d);
 
         d.clear_background(Color::BLACK);
